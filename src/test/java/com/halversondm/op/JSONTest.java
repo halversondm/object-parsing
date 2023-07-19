@@ -1,25 +1,30 @@
 package com.halversondm.op;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jayway.jsonpath.Configuration;
+import com.jayway.jsonpath.DocumentContext;
+import com.jayway.jsonpath.JsonPath;
+import com.jayway.jsonpath.Option;
 import jakarta.json.Json;
 import jakarta.json.JsonReader;
 import jakarta.json.JsonStructure;
-import jakarta.json.JsonValue;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.springframework.util.StopWatch;
 
 import java.io.IOException;
 import java.io.StringReader;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+@Slf4j
 public class JSONTest {
 
-    private static final Logger LOGGER = LogManager.getLogger(JSONTest.class);
+    static StopWatch stopWatch = new StopWatch();
 
     String json = """
             {
@@ -46,11 +51,24 @@ public class JSONTest {
                 "interests": ["",""]
             }""";
 
+    @AfterAll
+    static void logging() {
+        log.info("{}", stopWatch.prettyPrint());
+    }
+
     @Test
     void testFind() throws IOException {
         // assume this was done for you coming into the controller method
-        ObjectMapper objectMapper = new ObjectMapper();
-        Map<String, Object> payload = objectMapper.readValue(json, Map.class);
+        Map<String, Object> payload = (Map<String, Object>) commonTest("Initial Mapping for Map Recursion", (tag) -> {
+            try {
+                ObjectMapper objectMapper = new ObjectMapper();
+                return objectMapper.readValue(json, Map.class);
+            } catch (Exception e) {
+                log.error("", e);
+            }
+            return null;
+        });
+
         //
 
         // this is the path string that we need to find in the original structure
@@ -64,56 +82,48 @@ public class JSONTest {
 
     private void testCase(String fieldToFind, Map<String, Object> payload, Object expectedResult) {
         // convert to an array using the separator to iterate through.
-        LOGGER.info("Testing path '{}' with expected result of '{}'", fieldToFind, expectedResult);
-        String[] fieldToFindArray = fieldToFind.split("\\.");
-        try {
-            assertEquals(expectedResult, find(payload, fieldToFindArray));
-        } catch (RuntimeException runtimeException) {
-            LOGGER.error("", runtimeException);
-        }
-    }
-
-
-    // method under test
-    private Object find(Object payload, String[] fieldToFindArray) {
-
-        if (fieldToFindArray.length == 0) {
-            return payload;
-        }
-
-        if (payload instanceof Map) {
-            Object value = ((Map<?, ?>) payload).size() > 0 ? ((Map<?, ?>) payload).get(fieldToFindArray[0]) : null;
-            if (value != null) {
-                String[] newFieldToFindArray = Arrays.copyOfRange(fieldToFindArray, 1, fieldToFindArray.length);
-                return find(value, newFieldToFindArray);
-            } else {
-                throw new RuntimeException("Key " + fieldToFindArray[0] + " is not found");
-            }
-        } else if (payload instanceof List) {
+        Object result = commonTest("Map Recursion", (tag) -> {
+            log.info("tag: {} Testing path '{}' with expected result of '{}'", tag, fieldToFind, expectedResult);
+            String[] fieldToFindArray = fieldToFind.split("\\.");
             try {
-                int position = Integer.parseInt(fieldToFindArray[0]);
-                Object value = ((List<?>) payload).size() > 0 ? ((List<?>) payload).get(position) : null;
-                if (value != null) {
-                    String[] newFieldToFindArray = Arrays.copyOfRange(fieldToFindArray, 1, fieldToFindArray.length);
-                    return find(value, newFieldToFindArray);
-                } else {
-                    throw new RuntimeException("Key " + fieldToFindArray[0] + " is not found");
-                }
-            } catch (NumberFormatException numberFormatException) {
-                throw new RuntimeException("Key " + fieldToFindArray[0] + " is not a number to find in a list");
+                Object actualResult = MapSearch.find(payload, fieldToFindArray);
+                assertEquals(expectedResult, actualResult);
+                return actualResult;
+            } catch (RuntimeException runtimeException) {
+                log.error("", runtimeException);
             }
-        }
-
-        return payload;
+            return null;
+        });
     }
 
     @Test
     void testJSONP() {
+        Object jsonValue = commonTest("JSONP", (tag) -> {
+            JsonReader jsonReader = Json.createReader(new StringReader(json));
+            JsonStructure jsonStructure = jsonReader.read();
+            return jsonStructure.getValue("/phoneNumbers/0/number");
+        });
+        assertNotNull(jsonValue);
+    }
 
-        JsonReader jsonReader = Json.createReader(new StringReader(json));
-        JsonStructure jsonStructure = jsonReader.read();
-        JsonValue jsonValue = jsonStructure.getValue("/phoneNumbers/0/number");
-        LOGGER.info("{}", jsonValue);
-        jsonReader.close();
+    @Test
+    void testJsonPath() {
+        Object read = commonTest("JsonPath", (tag) -> {
+            String searchPath = "$.phoneNumbers[0].number";
+            Configuration configuration = Configuration.builder().options(Option.SUPPRESS_EXCEPTIONS).build();
+            DocumentContext documentContext = JsonPath.using(configuration).parse(json);
+            return documentContext.read(searchPath);
+        });
+        assertNotNull(read);
+    }
+
+    Object commonTest(String tag, Function<String, Object> supplier) {
+        stopWatch.start(tag);
+
+        Object result = supplier.apply(tag);
+
+        stopWatch.stop();
+        log.info("tag: {} result: {}", tag, result);
+        return result;
     }
 }
