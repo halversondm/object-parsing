@@ -44,4 +44,33 @@ public class MapSearch {
 
         return payload;
     }
+
+    public static Object find(Object payload, String[] fieldToFindArray, int index) {
+        if (index >= fieldToFindArray.length || payload == null) {
+            return payload;
+        }
+
+        if (payload instanceof Map) {
+            Object value = ((Map<?, ?>) payload).size() > 0 ? ((Map<?, ?>) payload).get(fieldToFindArray[index]) : null;
+            if (value != null) {
+                return find(value, fieldToFindArray, index + 1);
+            } else {
+                throw new RuntimeException("Key " + fieldToFindArray[index] + " is not found");
+            }
+        } else if (payload instanceof List) {
+            try {
+                int position = Integer.parseInt(fieldToFindArray[index]);
+                Object value = ((List<?>) payload).size() > 0 ? ((List<?>) payload).get(position) : null;
+                if (value != null) {
+                    return find(value, fieldToFindArray, index + 1);
+                } else {
+                    throw new RuntimeException("Key " + fieldToFindArray[index] + " is not found");
+                }
+            } catch (NumberFormatException numberFormatException) {
+                throw new RuntimeException("Key " + fieldToFindArray[index] + " is not a number to find in a list");
+            }
+        } else {
+            throw new RuntimeException("Unsupported payload type");
+        }
+    }
 }
